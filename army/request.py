@@ -15,38 +15,69 @@ if __name__ == "__main__":
         'startDate': '',
         'endDate': ''
     }
-    # 第一次请求获取数据total
+    # 获取更改项
+    def get_change(old,new):
+        if 'change' in old:
+            old_change = old['change']
+            del old['change']
+        change_item = {k: old[k] for k in old if old[k] != new[k]}
+        new['change'] = change_item
+        if 'change' in old:
+            old['change'] = old_change
+        return new
+    # 判断是否是同一家供应商
+    def is_same_com(obj1,obj2):
+        if obj1['creditName'] == obj2['creditName'] and obj1['creditCode'] == obj2['creditCode'] and obj1['id'] == obj2['id']:
+            return True
+        else:
+            return False
+        
+    def compare(olist,nlist):
+        change_item_list = []
+        for o in olist:
+            for n in nlist:
+                if is_same_com(o,n):
+                    if get_change(o,n)['change'] != {}:
+                        change_item_list.append(get_change(o,n))
+        return change_item_list
+    
+    def get_diff(_before,_later):
+        add_list = [d for d in _later if not any(d['creditCode'] == old['creditCode'] and d['creditName'] == old['creditName'] and d['id'] == old['id']for old in _before)]
+        return add_list
+    
+    def update_oldlist(path,newlist):
+        with open(path,'w',encoding='utf-8') as fp:
+            json.dump(newlist,fp=fp,ensure_ascii=False)
+    """*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*爬虫-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*"""
     respone = requests.get(url=url, params=data, headers=headers)
-    respone.encoding = 'utf-8'
-    total = respone.json()['data']['total']
+    if respone.status_code == 200:
+        new_data = []
+        old_data = []
+        # 第一次请求获取数据total
+        respone.encoding = 'utf-8'
+        total = respone.json()['data']['total']
 
-    # 判断有无该文件，拿到旧数据
-    old_data = []
-    old_data_id_list = []
-    if os.path.isfile('./army/blacklist.json'):
-        with open('./army/blacklist.json', 'r', encoding='utf-8') as fr:
-            old_data = json.loads(fr.read())
-            for i in old_data:
-                old_data_id_list.append(i['id'])
-    # print(old_data_id_list)
+        # 第二次请求,拿到新数据
+        data['pageSize'] = total
+        respone1 = requests.get(url=url, params=data, headers=headers)
+        respone1.encoding = 'utf-8'
+        new_data = respone1.json()['data']['rows']
 
-    # 第二次请求,拿到新数据
-    new_data_id_list = []
-    data['pageSize'] = total
-    respone1 = requests.get(url=url, params=data, headers=headers)
-    respone1.encoding = 'utf-8'
-    new_data = respone1.json()['data']['rows']
-    for i in new_data:
-        new_data_id_list.append(i['id'])
-    # print(new_data_id_list)
-
-    # 对比新旧数据，算出新增和减少项
-    add_data = [x for x in new_data if x not in old_data]
-    red_data = [x for x in old_data if x not in new_data]
-    print(add_data)
-    # 新数据写入文件，成为旧数据
-    with open('./army/blacklist.json', 'w', encoding='utf-8') as fp:
-        # 去重后再写入
-        tuple_set = set(tuple(d.items()) for d in new_data)
-        result = [dict(t) for t in tuple_set]
-        json.dump(result, fp=fp, ensure_ascii=False)
+        # 对比新旧数据，算出新增和减少项
+        # 判断有无该文件，拿到旧数据
+        if not os.path.isfile('./oldList.json'):
+            print('没有旧文件')
+            update_oldlist('./oldList.json',newlist=new_data)
+        else:
+            with open('./oldList.json', 'r', encoding='utf-8') as fr:
+                old_data = json.loads(fr.read())
+            with open('./changeList.json','w',encoding='utf-8') as fp:
+                json.dump(compare(old_data,new_data),fp=fp,ensure_ascii=False)
+            with open('./addList.json','w',encoding='utf-8') as fp:
+                json.dump(get_diff(old_data,new_data),fp=fp,ensure_ascii=False)
+            with open('./deleteList.json','w',encoding='utf-8') as fp:
+                json.dump(get_diff(new_data,old_data),fp=fp,ensure_ascii=False)
+            update_oldlist('./oldList.json',newlist=new_data)
+            print('结束')
+    else:
+        print('请求出错')
